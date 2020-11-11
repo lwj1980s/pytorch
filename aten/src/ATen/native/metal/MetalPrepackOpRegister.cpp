@@ -1,7 +1,6 @@
+#include <ATen/ATen.h>
 #include <ATen/core/op_registration/op_registration.h>
 #include <ATen/native/metal/MetalPrepackOpContext.h>
-#include <ATen/ATen.h>
-
 
 #if (C10_IOS || TARGET_OS_MAC)
 #import <ATen/native/metal/mpscnn/MPSCNNOps.h>
@@ -20,7 +19,10 @@ c10::intrusive_ptr<Conv2dOpContext> unpack(
     int64_t groups,
     c10::optional<Scalar> output_min,
     c10::optional<Scalar> output_max) {
-  const Tensor weightContig = weight.contiguous();
+  Tensor weightContig = weight.contiguous();
+  if (weightContig.is_quantized()) {
+    weightContig = weightContig.dequantize();
+  }
   const auto ws = weightContig.sizes();
   auto packed_buffer = permuteWeights(weightContig.data_ptr<float>(), ws.vec());
   auto packedWeight = at::empty(ws);
