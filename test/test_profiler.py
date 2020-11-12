@@ -7,6 +7,7 @@ import torch.nn as nn
 from torch.testing._internal.common_utils import (
     TestCase, run_tests, TEST_WITH_ASAN, IS_WINDOWS)
 from torch.autograd.profiler import profile
+from torch.autograd import kineto_available
 
 try:
     import psutil
@@ -73,7 +74,7 @@ class TestProfiler(TestCase):
 
         mod = DummyModule()
 
-        with profile(with_stack=True) as p:
+        with profile(with_stack=True, use_kineto=kineto_available()) as p:
             x = torch.randn(10, 10, requires_grad=True)
             y = torch.randn(10, 10, requires_grad=True)
             z = x + y
@@ -99,6 +100,26 @@ class TestProfiler(TestCase):
 
         torch._C._set_graph_executor_optimize(prev_opt)
 
+    @unittest.skipIf(not kineto_available(), "Kineto is required")
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA is required")
+    def test_kineto(self):
+        x = torch.randn(10, 10).cuda()
+        y = torch.randn(10, 10).cuda()
+        with profile(use_cuda=True, use_kineto=True) as p:
+            z = torch.mm(x, y)
+            z = z + y
+            z = z.cpu()
+        print(p.key_averages().table(
+            sort_by="self_cuda_time_total", row_limit=-1))
+        found_gemm = False
+        found_memcpy = False
+        for e in p.function_events:
+            if "gemm" in e.name:
+                found_gemm = True
+            if "Memcpy" in e.name or "memcpy" in e.name:
+                found_memcpy = True
+        self.assertTrue(found_gemm)
+        self.assertTrue(found_memcpy)
 
 if __name__ == '__main__':
     run_tests()
